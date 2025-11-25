@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>能力刻度尺 V4 - INTJ 结构化能力树</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 React 和 React DOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- 引入 Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        /* 基础动画与样式 */
+        body { font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; }
+        
+        /* 动画类 */
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .level-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .level-card:hover { transform: translateY(-2px); }
+        
+        .progress-bar { transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
+
+        /* 拖拽相关样式 */
+        .draggable-tab { cursor: grab; user-select: none; transition: all 0.2s; }
+        .draggable-tab:active { cursor: grabbing; transform: scale(0.95); }
+        .draggable-tab.dragging { opacity: 0.5; border: 2px dashed #94a3b8; background: #f1f5f9; }
+        
+        /* 自定义滚动条 */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* 宽屏布局样式 */
+        .sidebar-nav { transition: all 0.3s ease; }
+        .sidebar-nav:hover { background: #f8fafc; }
+        .role-badge { transition: all 0.2s ease; }
+        .role-badge:hover { transform: translateX(4px); }
+
+        .checkbox-wrapper input:checked + div {
+            background-color: #10B981;
+            border-color: #10B981;
+        }
+        .checkbox-wrapper input:checked + div svg { display: block; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen pb-20">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- 1. 职业角色与能力映射 ---
+        const careerRoles = [
+            {
+                id: 'ai-pm',
+                name: 'AI产品经理',
+                icon: '🚀',
+                color: 'purple',
+                description: '用AI重塑产品与工作流',
+                skillIds: ['ai-agent', 'proxy']
+            },
+            {
+                id: 'sales',
+                name: '销售',
+                icon: '💰',
+                color: 'blue',
+                description: '商业拓展与客户成功',
+                skillIds: ['sales']
+            }
+        ];
+
+        // --- 2. 数据模型 (新增 tips 和 logs) ---
+        const initialSkills = [
+            {
+                id: 'sales',
+                name: '销售能力',
+                enName: 'Sales Competence',
+                icon: '💼',
+                color: 'blue',
+                type: 'professional', // 能力类型:专业能力
+                category: '商业拓展',
+                description: '从"不敢开口"到"掌控人心"，结果导向的软技能量化。',
+                supportingSkills: ['需求洞察', 'SPIN提问', '价值呈现', '异议处理', '谈判'],
+                requiredKnowledge: ['行业知识', '产品知识', '竞品分析', '定价策略', '采购流程'],
+                tools: ['CRM系统', '演示工具', '报价系统', 'LinkedIn'],
+                metrics: {
+                    primary: '转化率',
+                    secondary: ['销售周期', '客单价', '续约率']
+                },
+                levels: [
+                    {
+                        lvl: 1,
+                        title: '传声筒 (The Teller)',
+                        desc: '去恐惧化与标准化执行',
+                        bossChallenge: '连续打50个陌生电话且不感到心理崩溃',
+                        tips: [
+                            '💡 即使对方看不见，站起来打电话会让你的声音更有底气。',
+                            '💡 在电脑旁贴一张“被拒绝并不是否定我个人”的便签。',
+                            '💡 录下自己的前10个电话，听听自己的语速是否过快。'
+                        ],
+                        logs: [],
+                        criteria: [
+                            { id: 's1-1', text: '能流畅背诵标准话术，不卡顿', done: true },
+                            { id: 's1-2', text: '面对直接挂断/拒绝，心率无明显波动', done: true },
+                            { id: 's1-3', text: '熟练使用CRM系统记录每一次沟通', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 2,
+                        title: '成交手 (The Closer)',
+                        desc: '转化率与抗拒处理',
+                        bossChallenge: '向意向客户提出付款要求并敢于沉默等待',
+                        tips: [
+                            '💡 报价后请立即闭嘴，在这个阶段，谁先说话谁就输了。',
+                            '💡 准备好三个“为什么”问题，当客户拒绝时顺势提问。',
+                            '💡 记录下每一次成单的关键转折点，复盘你的“杀手锏”。'
+                        ],
+                        logs: [],
+                        criteria: [
+                            { id: 's2-1', text: '针对“太贵了”有至少3种标准回应逻辑', done: false },
+                            { id: 's2-2', text: '连续3个月完成基础销售业绩指标', done: false },
+                            { id: 's2-3', text: '报价时敢于直视客户眼睛，不显露怯意', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 3,
+                        title: '顾问 (The Consultant)',
+                        desc: '价值重塑与信任建立',
+                        bossChallenge: '通过SPIN提问让客户自己承认痛点',
+                        tips: [
+                            '💡 多问“这对您的业务会有什么影响？”，而不是“您想买吗？”',
+                            '💡 尝试帮客户算一笔账，用 ROI (投资回报率) 说话。'
+                        ],
+                        logs: [],
+                        criteria: [
+                            { id: 's3-1', text: '客户遇到非本产品问题也会主动咨询你', done: false },
+                            { id: 's3-2', text: '能计算并向客户展示清晰的 ROI', done: false },
+                            { id: 's3-3', text: '敢于挑战客户的错误观点并获得认可', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 4,
+                        title: '操盘手 (The Strategist)',
+                        desc: '搞定复杂大单与决策链',
+                        bossChallenge: '不降价的前提下，通过置换条件完成签约',
+                        tips: ['💡 画出客户公司的组织架构图，标记出谁是支持者，谁是反对者。'],
+                        logs: [],
+                        criteria: [
+                            { id: 's4-1', text: '能搞定决策链上的所有关键角色', done: false },
+                            { id: 's4-2', text: '精准控制长达6个月以上的销售周期', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 5,
+                        title: '造雨人 (The Rainmaker)',
+                        desc: '资源整合与行业影响力',
+                        bossChallenge: '客户通过你的演讲/文章主动找上门',
+                        tips: ['💡 开始输内容，建立个人 IP。'],
+                        logs: [],
+                        criteria: [
+                            { id: 's5-1', text: '参与客户预算制定或行业标准制定', done: false },
+                            { id: 's5-2', text: '拥有一套可复制的个人销售方法论体系', done: false }
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'ai-agent',
+                name: 'AI代理使用',
+                enName: 'AI Agent Mastery',
+                icon: '🤖',
+                color: 'purple',
+                type: 'technical', // 技能类型(数智化)
+                category: '数智化工具',
+                description: '从工具使用者到工作流架构师,让AI成为你的杠杆。',
+                supportingSkills: ['提示工程', '工作流编排', 'API集成', '质量评估'],
+                requiredKnowledge: ['大语言模型原理', '任务分解方法', 'Prompt设计模式', '数据结构'],
+                tools: ['ChatGPT', 'Claude', 'Dify', 'LangChain', 'API'],
+                metrics: {
+                    primary: '任务成功率',
+                    secondary: ['准确率', '节省时长', '迭代速度']
+                },
+                levels: [
+                    {
+                        lvl: 1,
+                        title: '使用者 (User)',
+                        desc: '消除恐惧,掌握基础对话',
+                        bossChallenge: '用AI独立完成一次完整的工作任务(如周报生成)',
+                        tips: [
+                            '💡 把AI当成"超级实习生",不要期待它第一次就完美。',
+                            '💡 学会在Prompt中加入"角色+目标+约束"三要素。',
+                            '💡 保存你的有效Prompt,建立个人提示词库。'
+                        ],
+                        logs: [],
+                        criteria: [
+                            { id: 'ai1-1', text: '能清晰描述任务目标与期望输出格式', done: false },
+                            { id: 'ai1-2', text: '理解并能使用基础Prompt结构(角色+任务+约束)', done: false },
+                            { id: 'ai1-3', text: '至少完成5次真实工作场景的AI辅助任务', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 2,
+                        title: '优化者 (Optimizer)',
+                        desc: '迭代改进,提升输出质量',
+                        bossChallenge: '通过3轮对话让AI输出达到可直接使用的标准',
+                        tips: [
+                            '💡 使用"思维链"(Chain of Thought)让AI展示推理过程。',
+                            '💡 学会追问:"你的假设是什么?" "还有其他方案吗?"',
+                            '💡 对比不同模型(GPT/Claude)的输出差异,找到最适合的。'
+                        ],
+                        logs: [],
+                        criteria: [
+                            { id: 'ai2-1', text: '能识别AI输出的质量问题并精准反馈', done: false },
+                            { id: 'ai2-2', text: '掌握Few-shot Learning(提供示例引导输出)', done: false },
+                            { id: 'ai2-3', text: '建立个人Prompt模版库(至少10个场景)', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 3,
+                        title: '编排者 (Orchestrator)',
+                        desc: '工作流设计与自动化',
+                        bossChallenge: '设计一个多步骤AI工作流(如:调研→分析→报告生成)',
+                        tips: [
+                            '💡 把复杂任务拆解为"输入→处理→输出→验证"的流程图。',
+                            '💡 学会使用工具调用(Function Calling)让AI连接外部系统。',
+                            '💡 设计检查点:在关键步骤插入人工审核。'
+                        ],
+                        logs: [],
+                        criteria: [
+                            { id: 'ai3-1', text: '能拆解复杂任务为可执行的子任务链路', done: false },
+                            { id: 'ai3-2', text: '理解并能设计消息传递与上下文管理机制', done: false },
+                            { id: 'ai3-3', text: '至少构建1个可复用的自动化工作流', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 4,
+                        title: '架构师 (Architect)',
+                        desc: 'API集成与系统化部署',
+                        bossChallenge: '通过API将AI能力集成到现有业务系统中',
+                        tips: [
+                            '💡 学习OpenAI/Anthropic API文档,掌握参数调优。',
+                            '💡 设计异常处理:API超时、余额不足、输出格式错误。'
+                        ],
+                        logs: [],
+                        criteria: [
+                            { id: 'ai4-1', text: '能独立调用AI API并处理响应数据', done: false },
+                            { id: 'ai4-2', text: '设计并实现错误重试与降级策略', done: false },
+                            { id: 'ai4-3', text: '构建成本监控与质量评估体系', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 5,
+                        title: '创新者 (Innovator)',
+                        desc: '探索边界与方法论沉淀',
+                        bossChallenge: '输出一套可复制的AI工作流方法论供团队使用',
+                        tips: [
+                            '💡 持续跟踪AI能力边界,实验新功能(如代码执行、图像生成)。',
+                            '💡 建立评估标准:准确率、覆盖率、幻觉率、成本效益。'
+                        ],
+                        logs: [],
+                        criteria: [
+                            { id: 'ai5-1', text: '形成个人AI使用方法论并对外分享', done: false },
+                            { id: 'ai5-2', text: '能评估新模型/新功能并快速应用到工作中', done: false }
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'proxy',
+                name: '代理工具',
+                enName: 'Proxy Usage',
+                icon: '🌐',
+                color: 'indigo',
+                type: 'technical',
+                category: '网络工具',
+                description: '从简单的连接到复杂的网络架构掌控。',
+                supportingSkills: ['节点配置', '规则编写', 'VPS运维', '流量分析'],
+                requiredKnowledge: ['网络协议', 'TCP/IP', 'TLS加密', '防火墙规则'],
+                tools: ['Clash', 'V2Ray', 'SSH', 'WireShark'],
+                metrics: {
+                    primary: '连接稳定性',
+                    secondary: ['延迟', '速度', '成功率']
+                },
+                requiredKnowledge: ['网络协议', 'TCP/IP', 'TLS加密', '防火墙规则'],
+                tools: ['Clash', 'V2Ray', 'SSH', 'WireShard'],
+                metrics: {
+                    primary: '连接稳定性',
+                    secondary: ['延迟', '速度', '成功率']
+                },
+                levels: [
+                    {
+                        lvl: 1,
+                        title: '使用者 (Novice)',
+                        desc: '连通性与基础配置',
+                        bossChallenge: '独立导入配置并成功打开 Google',
+                        tips: [
+                            '💡 遇到连接超时，先检查本地电脑的系统时间是否准确。',
+                            '💡 区分 Subscription Link (订阅链接) 和节点链接的区别。'
+                        ],
+                        logs: [],
+                        criteria: [
+                            { id: 'p1-1', text: '能够购买节点并获取订阅链接', done: true },
+                            { id: 'p1-2', text: '客户端(Clash/V2Ray)配置正确', done: true },
+                            { id: 'p1-3', text: '浏览器能正常访问外网', done: true }
+                        ]
+                    },
+                    // ... (为了节省长度，保持原样逻辑，实际使用时可补全其他等级) ... 
+                     {
+                        lvl: 2,
+                        title: '筛选者 (Competent)',
+                        desc: '稳定性维护',
+                        bossChallenge: '手动剔除失效节点，保证24小时不断连',
+                        tips: ['💡 了解什么是 ICMP Ping 和 TCP Ping 的区别。'],
+                        logs: [],
+                        criteria: [
+                            { id: 'p2-1', text: '理解并能测试 Ping 值和丢包率', done: true },
+                            { id: 'p2-2', text: '熟练切换规则模式与全局模式', done: false },
+                            { id: 'p2-3', text: '能识别不同地区的节点优劣', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 3,
+                        title: '构建者 (Builder)',
+                        desc: '自主性与服务器运维',
+                        bossChallenge: '仅凭文档在1小时内配置好全新VPS并连接',
+                        tips: [],
+                        logs: [],
+                        criteria: [
+                            { id: 'p3-1', text: '能购买 VPS 并 SSH 远程连接', done: false },
+                            { id: 'p3-2', text: '理解 TCP/IP 握手与 TLS 加密基础', done: false },
+                            { id: 'p3-3', text: '能解决端口被封或 IP 被墙问题', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 4,
+                        title: '架构师 (Architect)',
+                        desc: '分流优化与负载均衡',
+                        bossChallenge: '实现家庭/公司级透明代理与智能分流',
+                        tips: [],
+                        logs: [],
+                        criteria: [
+                            { id: 'p4-1', text: '编写复杂的自定义规则(Rule Set)', done: false },
+                            { id: 'p4-2', text: '实现多线路负载均衡或故障转移', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 5,
+                        title: '极客 (Geek)',
+                        desc: '协议深度与自动化',
+                        bossChallenge: '编写自动化脚本管理大规模节点集群',
+                        tips: [],
+                        logs: [],
+                        criteria: [
+                            { id: 'p5-1', text: '深度分析抓包数据，优化协议传输', done: false },
+                            { id: 'p5-2', text: '开发或二次开发相关代理工具', done: false }
+                        ]
+                    }
+                ]
+            }
+        ];
+
+        // --- 2. 子组件：详情页 (DetailView) ---
+        
+        function DetailView({ skill, levelIndex, onBack, onUpdateSkill }) {
+            const level = skill.levels[levelIndex];
+            const [logInput, setLogInput] = useState('');
+
+            const handleAddLog = () => {
+                if (!logInput.trim()) return;
+                
+                const newLog = {
+                    id: Date.now(),
+                    date: new Date().toLocaleString(),
+                    text: logInput
+                };
+
+                // 更新状态逻辑
+                const updatedSkill = { ...skill };
+                updatedSkill.levels[levelIndex].logs.unshift(newLog);
+                onUpdateSkill(updatedSkill);
+                
+                setLogInput('');
+            };
+
+            return (
+                <div className="fade-in max-w-5xl mx-auto p-4 md:p-8">
+                    {/* 导航栏 */}
+                    <button 
+                        onClick={onBack}
+                        className="mb-6 flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors font-medium"
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                        返回仪表盘
+                    </button>
+
+                    {/* 头部信息 */}
+                    <div className={`bg-white rounded-2xl shadow-sm border border-slate-200 p-8 mb-8 border-l-8 border-l-${skill.color}-500`}>
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                            <div>
+                                <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold mb-2 bg-${skill.color}-100 text-${skill.color}-700`}>
+                                    {skill.name} · LEVEL {level.lvl}
+                                </div>
+                                <h1 className="text-3xl font-bold text-slate-800">{level.title}</h1>
+                                <p className="text-slate-500 mt-1">{level.desc}</p>
+                            </div>
+                            <div className="text-center bg-slate-50 p-4 rounded-lg border border-slate-100 min-w-[150px]">
+                                <div className="text-xs text-slate-400 uppercase font-bold mb-1">完成度</div>
+                                <div className={`text-2xl font-black text-${skill.color}-600`}>
+                                    {level.criteria.filter(c => c.done).length} / {level.criteria.length}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        
+                        {/* 左侧：练习指南与提示 */}
+                        <div className="lg:col-span-1 space-y-6">
+                            
+                            {/* Boss 目标卡 */}
+                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                                <h3 className="text-sm font-bold text-slate-400 uppercase mb-4 tracking-wider flex items-center gap-2">
+                                    🎯 核心目标 (Boss)
+                                </h3>
+                                <p className="text-slate-800 font-medium leading-relaxed bg-rose-50 p-3 rounded-lg border border-rose-100 text-rose-800">
+                                    {level.bossChallenge}
+                                </p>
+                            </div>
+
+                            {/* 专家锦囊 (Tips) */}
+                            <div className="bg-amber-50 rounded-xl shadow-sm border border-amber-100 p-6">
+                                <h3 className="text-sm font-bold text-amber-600 uppercase mb-4 tracking-wider flex items-center gap-2">
+                                    💡 专家锦囊 (Pro Tips)
+                                </h3>
+                                <ul className="space-y-3">
+                                    {level.tips && level.tips.length > 0 ? level.tips.map((tip, idx) => (
+                                        <li key={idx} className="text-sm text-amber-900 leading-relaxed flex gap-2">
+                                            <span>•</span>
+                                            <span>{tip.replace('💡', '')}</span>
+                                        </li>
+                                    )) : (
+                                        <li className="text-sm text-amber-700 italic">暂无特殊提示，请专注于完成验收标准。</li>
+                                    )}
+                                </ul>
+                            </div>
+
+                            {/* 验收标准回顾 */}
+                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 opacity-80">
+                                <h3 className="text-sm font-bold text-slate-400 uppercase mb-3">验收标准回顾</h3>
+                                <div className="space-y-2">
+                                    {level.criteria.map(c => (
+                                        <div key={c.id} className="flex items-center gap-2 text-sm">
+                                            <div className={`w-2 h-2 rounded-full ${c.done ? 'bg-green-500' : 'bg-slate-300'}`}></div>
+                                            <span className={c.done ? 'text-slate-400 line-through' : 'text-slate-600'}>{c.text}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 右侧：练习日志 (Training Log) */}
+                        <div className="lg:col-span-2">
+                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full min-h-[500px]">
+                                <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                                    <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                                        📝 练习日志
+                                        <span className="text-xs font-normal text-slate-400 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                            共 {level.logs.length} 条记录
+                                        </span>
+                                    </h3>
+                                </div>
+                                
+                                {/* 日志列表 */}
+                                <div className="flex-1 p-6 bg-slate-50/50 overflow-y-auto custom-scrollbar space-y-4 max-h-[600px]">
+                                    {level.logs.length === 0 ? (
+                                        <div className="text-center py-12 text-slate-400">
+                                            <div className="text-4xl mb-2">📒</div>
+                                            <p>还没有记录，写下你的第一次练习心得吧！</p>
+                                        </div>
+                                    ) : (
+                                        level.logs.map(log => (
+                                            <div key={log.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm relative group hover:shadow-md transition-shadow">
+                                                <div className="text-xs text-slate-400 mb-2 font-mono">{log.date}</div>
+                                                <div className="text-slate-700 whitespace-pre-wrap leading-relaxed">{log.text}</div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+
+                                {/* 输入区域 */}
+                                <div className="p-4 bg-white border-t border-slate-200">
+                                    <div className="relative">
+                                        <textarea
+                                            className="w-full border border-slate-300 rounded-xl p-4 pr-24 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none bg-slate-50 focus:bg-white transition-colors text-sm"
+                                            rows="3"
+                                            placeholder={`记录你在 Lv.${level.lvl} 的练习过程、感悟或遇到的问题...`}
+                                            value={logInput}
+                                            onChange={(e) => setLogInput(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if(e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                                    handleAddLog();
+                                                }
+                                            }}
+                                        ></textarea>
+                                        <button 
+                                            onClick={handleAddLog}
+                                            disabled={!logInput.trim()}
+                                            className={`absolute bottom-3 right-3 px-4 py-2 rounded-lg text-sm font-bold transition-all
+                                                ${logInput.trim() 
+                                                    ? `bg-${skill.color}-600 text-white hover:bg-${skill.color}-700 shadow-md` 
+                                                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'}
+                                            `}
+                                        >
+                                            记录
+                                        </button>
+                                    </div>
+                                    <div className="text-xs text-slate-400 mt-2 text-right px-1">
+                                        按 Ctrl + Enter 快速发送
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+
+        // --- 3. 主程序组件 (App) ---
+
+        function App() {
+            const [skills, setSkills] = useState(initialSkills);
+            const [activeRoleId, setActiveRoleId] = useState(careerRoles[0].id);
+            const [activeSkillId, setActiveSkillId] = useState(initialSkills[0].id);
+            
+            // 视图状态: 'dashboard' 或 'detail'
+            const [viewMode, setViewMode] = useState('dashboard'); 
+            const [selectedLevelIndex, setSelectedLevelIndex] = useState(0);
+
+            // 拖拽相关的 Refs
+            const dragItem = useRef();
+            const dragOverItem = useRef();
+
+            const currentRole = careerRoles.find(r => r.id === activeRoleId) || careerRoles[0];
+            const currentSkill = skills.find(s => s.id === activeSkillId) || skills[0];
+            const currentSkillIndex = skills.findIndex(s => s.id === activeSkillId);
+            const roleSkills = skills.filter(s => currentRole.skillIds.includes(s.id));
+
+            // 核心功能：处理拖拽排序 (保持不变)
+            const handleDragStart = (e, position) => {
+                dragItem.current = position;
+                e.target.classList.add('dragging');
+            };
+            const handleDragEnter = (e, position) => { dragOverItem.current = position; };
+            const handleDragEnd = (e) => {
+                e.target.classList.remove('dragging');
+                const copyListItems = [...skills];
+                const dragItemContent = copyListItems[dragItem.current];
+                copyListItems.splice(dragItem.current, 1);
+                copyListItems.splice(dragOverItem.current, 0, dragItemContent);
+                dragItem.current = null;
+                dragOverItem.current = null;
+                setSkills(copyListItems);
+            };
+
+            // 功能：切换 Checkbox (保持不变)
+            const toggleCriteria = (levelIndex, criteriaId) => {
+                const newSkills = skills.map(skill => {
+                    if (skill.id === activeSkillId) {
+                        const newLevels = [...skill.levels];
+                        const level = newLevels[levelIndex];
+                        const newCriteria = level.criteria.map(c => 
+                            c.id === criteriaId ? { ...c, done: !c.done } : c
+                        );
+                        newLevels[levelIndex] = { ...level, criteria: newCriteria };
+                        return { ...skill, levels: newLevels };
+                    }
+                    return skill;
+                });
+                setSkills(newSkills);
+            };
+
+            // 功能：更新单个技能的全量数据 (用于子组件回调)
+            const updateSingleSkill = (updatedSkill) => {
+                const newSkills = [...skills];
+                newSkills[currentSkillIndex] = updatedSkill;
+                setSkills(newSkills);
+            };
+
+            // 逻辑：计算当前等级 (保持不变)
+            const calculatedLevel = useMemo(() => {
+                let currentLvl = 0;
+                for (let level of currentSkill.levels) {
+                    const allDone = level.criteria.every(c => c.done);
+                    if (allDone) currentLvl = level.lvl; else break; 
+                }
+                return currentLvl;
+            }, [currentSkill]);
+
+            // 逻辑：计算进度条
+            const progressStats = useMemo(() => {
+                const total = currentSkill.levels.reduce((acc, lvl) => acc + lvl.criteria.length, 0);
+                const completed = currentSkill.levels.reduce((acc, lvl) => acc + lvl.criteria.filter(c => c.done).length, 0);
+                return { total, completed, percent: Math.round((completed / total) * 100) };
+            }, [currentSkill]);
+
+            // 导航控制
+            const enterLevelDetail = (index) => {
+                setSelectedLevelIndex(index);
+                setViewMode('detail');
+                window.scrollTo(0,0);
+            };
+
+            // --- 渲染部分 ---
+
+            // 如果是详情模式，渲染详情页
+            if (viewMode === 'detail') {
+                return (
+                    <DetailView 
+                        skill={currentSkill}
+                        levelIndex={selectedLevelIndex}
+                        onBack={() => setViewMode('dashboard')}
+                        onUpdateSkill={updateSingleSkill}
+                    />
+                );
+            }
+
+            // 否则渲染宽屏仪表盘 (Dashboard)
+            return (
+                <div className="fade-in flex h-screen overflow-hidden bg-slate-50">
+                    {/* 左侧职业角色导航 */}
+                    <div className="w-80 bg-white border-r border-slate-200 flex flex-col">
+                        {/* Logo区 */}
+                        <div className="p-6 border-b border-slate-100">
+                            <h1 className="text-2xl font-extrabold text-slate-800 flex items-center gap-2">
+                                <span className="bg-slate-800 text-white w-8 h-8 flex items-center justify-center rounded-lg text-lg">📏</span>
+                                <span>能力刻度尺</span>
+                            </h1>
+                            <p className="text-xs text-slate-400 mt-1 ml-10">v4.0 · INTJ能力树</p>
+                        </div>
+
+                        {/* 职业角色列表 */}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
+                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-2">职业角色</div>
+                            {careerRoles.map(role => {
+                                const isActive = activeRoleId === role.id;
+                                const roleSkillsData = skills.filter(s => role.skillIds.includes(s.id));
+                                const totalCriteria = roleSkillsData.reduce((acc, skill) => 
+                                    acc + skill.levels.reduce((sum, lvl) => sum + lvl.criteria.length, 0), 0
+                                );
+                                const completedCriteria = roleSkillsData.reduce((acc, skill) => 
+                                    acc + skill.levels.reduce((sum, lvl) => sum + lvl.criteria.filter(c => c.done).length, 0), 0
+                                );
+                                const progress = Math.round((completedCriteria / totalCriteria) * 100);
+
+                                return (
+                                    <div key={role.id} className="mb-3">
+                                        <button
+                                            onClick={() => {
+                                                setActiveRoleId(role.id);
+                                                setActiveSkillId(role.skillIds[0]);
+                                            }}
+                                            className={`w-full text-left p-4 rounded-xl transition-all sidebar-nav
+                                                ${isActive 
+                                                    ? `bg-${role.color}-50 border-2 border-${role.color}-200 shadow-md` 
+                                                    : 'bg-slate-50 border-2 border-transparent hover:border-slate-200'}
+                                            `}
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <span className="text-3xl">{role.icon}</span>
+                                                <div className="flex-1">
+                                                    <div className={`font-bold text-sm mb-1 ${isActive ? 'text-slate-800' : 'text-slate-600'}`}>
+                                                        {role.name}
+                                                    </div>
+                                                    <div className="text-xs text-slate-500 mb-2">{role.description}</div>
+                                                    
+                                                    {/* 进度条 */}
+                                                    <div className="w-full bg-slate-200 rounded-full h-1.5 mb-1">
+                                                        <div 
+                                                            className={`h-full rounded-full bg-gradient-to-r from-${role.color}-400 to-${role.color}-600 transition-all duration-500`}
+                                                            style={{width: `${progress}%`}}
+                                                        ></div>
+                                                    </div>
+                                                    <div className="text-xs text-slate-400">{progress}% 完成</div>
+                                                </div>
+                                            </div>
+                                        </button>
+
+                                        {/* 该角色下的能力列表 */}
+                                        {isActive && (
+                                            <div className="mt-2 ml-2 space-y-1">
+                                                {roleSkillsData.map(skill => {
+                                                    const isActiveSkill = activeSkillId === skill.id;
+                                                    return (
+                                                        <button
+                                                            key={skill.id}
+                                                            onClick={() => setActiveSkillId(skill.id)}
+                                                            className={`w-full text-left px-4 py-2 rounded-lg flex items-center gap-2 transition-all role-badge
+                                                                ${isActiveSkill 
+                                                                    ? `bg-${skill.color}-100 text-${skill.color}-700 font-semibold` 
+                                                                    : 'text-slate-600 hover:bg-slate-100'}
+                                                            `}
+                                                        >
+                                                            <span className="text-lg">{skill.icon}</span>
+                                                            <span className="text-xs">{skill.name}</span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* 底部信息 */}
+                        <div className="p-4 border-t border-slate-100 text-center">
+                            <p className="text-xs text-slate-400">INTJ Capability Framework</p>
+                        </div>
+                    </div>
+
+                    {/* 右侧内容区 */}
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8">
+                    {/* 当前角色面包屑 */}
+                    <div className="mb-6 flex items-center gap-2 text-sm">
+                        <span className="text-slate-400">当前角色:</span>
+                        <span className="font-bold text-slate-700 flex items-center gap-1">
+                            <span>{currentRole.icon}</span>
+                            <span>{currentRole.name}</span>
+                        </span>
+                        <span className="text-slate-300">→</span>
+                        <span className={`px-2 py-0.5 rounded text-xs font-bold bg-${currentSkill.color}-100 text-${currentSkill.color}-700`}>
+                            {currentSkill.name}
+                        </span>
+                    </div>
+
+                    {/* 主仪表盘 */}
+                    <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-6 md:p-8 mb-8 relative overflow-hidden">
+                        <div className={`absolute top-0 right-0 w-64 h-64 bg-${currentSkill.color}-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none`}></div>
+                        <div className="flex flex-col md:flex-row gap-8 relative z-10">
+                            <div className="flex-1">
+                                <div className="flex items-baseline gap-3 mb-2">
+                                    <span className="text-sm font-bold text-slate-400 uppercase tracking-wider">Current Status</span>
+                                    <span className={`px-2 py-0.5 rounded text-xs font-bold bg-${currentSkill.color}-100 text-${currentSkill.color}-700`}>
+                                        {currentSkill.name}
+                                    </span>
+                                </div>
+                                <h2 className="text-5xl font-black text-slate-800 mb-4">
+                                    Lv.{calculatedLevel}
+                                    <span className="text-2xl text-slate-300 font-medium ml-2">/ 5</span>
+                                </h2>
+                                <p className="text-slate-600 mb-6 max-w-lg leading-relaxed">{currentSkill.description}</p>
+                                <div>
+                                    <div className="flex justify-between text-xs font-bold text-slate-400 mb-2">
+                                        <span>MASTERY PROGRESS</span>
+                                        <span>{progressStats.percent}%</span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 rounded-full h-4 p-1">
+                                        <div 
+                                            className={`h-full rounded-full bg-gradient-to-r from-${currentSkill.color}-400 to-${currentSkill.color}-600 shadow-sm progress-bar`}
+                                            style={{width: `${progressStats.percent}%`}}
+                                        ></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-center md:justify-end md:w-1/3">
+                                <div className={`
+                                    w-48 h-48 rounded-full border-8 flex flex-col items-center justify-center shadow-inner transition-colors duration-500
+                                    ${calculatedLevel === 5 ? 'bg-yellow-50 border-yellow-300' : 'bg-slate-50 border-slate-100'}
+                                `}>
+                                    <span className="text-6xl mb-2 animate-bounce" style={{animationDuration: '3s'}}>
+                                        {calculatedLevel === 0 ? '🌱' : calculatedLevel === 1 ? '🔨' : calculatedLevel === 2 ? '⚔️' : calculatedLevel === 3 ? '🛡️' : calculatedLevel === 4 ? '🔮' : '👑'}
+                                    </span>
+                                    <span className="font-bold text-slate-700 text-lg">
+                                        {calculatedLevel > 0 ? currentSkill.levels[calculatedLevel - 1].title.split(' ')[0] : '新手'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 任务列表区域 */}
+                    <div className="space-y-6">
+                        {currentSkill.levels.map((level, index) => {
+                            const isUnlocked = index <= calculatedLevel;
+                            const isCurrentTarget = index === calculatedLevel; 
+                            const isCompleted = index < calculatedLevel;
+
+                            return (
+                                <div 
+                                    key={level.lvl} 
+                                    className={`level-card group relative rounded-2xl border-2 p-6 overflow-hidden transition-all
+                                        ${isCompleted 
+                                            ? 'bg-slate-50 border-slate-200 opacity-80' 
+                                            : isCurrentTarget 
+                                                ? `bg-white border-${currentSkill.color}-500 ring-4 ring-${currentSkill.color}-50 shadow-xl scale-[1.01]` 
+                                                : 'bg-white border-slate-100 opacity-60 grayscale hover:grayscale-0 hover:opacity-90'}
+                                    `}
+                                >
+                                    <div className="flex flex-col md:flex-row gap-6 relative z-10">
+                                        <div className="md:w-1/4">
+                                            <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold mb-3
+                                                ${isCompleted ? 'bg-slate-200 text-slate-600' : 
+                                                  isCurrentTarget ? `bg-${currentSkill.color}-100 text-${currentSkill.color}-700` : 'bg-slate-100 text-slate-400'}
+                                            `}>
+                                                LEVEL {level.lvl}
+                                            </div>
+                                            <h3 className="text-xl font-bold text-slate-800">{level.title}</h3>
+                                            <p className="text-sm text-slate-500 mt-2 leading-relaxed">{level.desc}</p>
+                                            
+                                            {/* 新增：进入练习室按钮 */}
+                                            <button 
+                                                onClick={() => enterLevelDetail(index)}
+                                                className={`mt-4 flex items-center gap-2 text-sm font-bold px-4 py-2 rounded-lg transition-all
+                                                    ${isCurrentTarget || isCompleted 
+                                                        ? `bg-white border border-slate-200 text-slate-700 hover:bg-${currentSkill.color}-50 hover:text-${currentSkill.color}-700 hover:border-${currentSkill.color}-200 shadow-sm` 
+                                                        : 'hidden'}
+                                                `}
+                                            >
+                                                <span>🚪 进入练习室</span>
+                                                {level.logs.length > 0 && (
+                                                    <span className="bg-slate-100 text-slate-500 px-1.5 rounded text-xs">{level.logs.length}</span>
+                                                )}
+                                            </button>
+                                        </div>
+
+                                        <div className="md:w-2/4 border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-6">
+                                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-4 tracking-widest flex items-center gap-2">
+                                                验收标准 Checklist
+                                            </h4>
+                                            <div className="space-y-3">
+                                                {level.criteria.map(c => (
+                                                    <label key={c.id} className="checkbox-wrapper flex items-start gap-3 cursor-pointer select-none">
+                                                        <div className="relative pt-0.5">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                className="hidden" 
+                                                                checked={c.done} 
+                                                                onChange={() => toggleCriteria(index, c.id)}
+                                                                disabled={!isCurrentTarget && !isCompleted}
+                                                            />
+                                                            <div className={`w-5 h-5 rounded border transition-colors duration-200 flex items-center justify-center
+                                                                ${c.done 
+                                                                    ? 'bg-emerald-500 border-emerald-500' 
+                                                                    : 'bg-white border-slate-300 group-hover:border-blue-400'}
+                                                            `}>
+                                                                <svg className="w-3.5 h-3.5 text-white hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
+                                                            </div>
+                                                        </div>
+                                                        <span className={`text-sm transition-all duration-300 ${c.done ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+                                                            {c.text}
+                                                        </span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="md:w-1/4 flex flex-col">
+                                            <div className={`h-full rounded-xl p-4 border flex flex-col justify-center transition-colors
+                                                ${level.criteria.every(c => c.done) && !isCompleted
+                                                    ? 'bg-rose-50 border-rose-200' 
+                                                    : 'bg-slate-50 border-slate-100'}
+                                            `}>
+                                                <div className="text-xs font-black text-rose-500 uppercase mb-2 flex items-center gap-1">
+                                                    🔥 进阶挑战
+                                                </div>
+                                                <p className="text-sm font-medium text-slate-700 leading-snug">
+                                                    {level.bossChallenge}
+                                                </p>
+                                                {level.criteria.every(c => c.done) && !isCompleted && (
+                                                    <div className="mt-3 text-xs bg-white text-rose-600 px-2 py-1.5 rounded border border-rose-100 shadow-sm text-center animate-pulse font-bold">
+                                                        挑战已激活，请进入练习室！
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    {/* 能力元数据展示 */}
+                    <div className="mt-12 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <h3 className="text-sm font-bold text-slate-400 uppercase mb-4">📊 能力结构分析</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
+                                <div className="text-xs text-slate-400 mb-1">能力类型</div>
+                                <div className="text-sm font-bold text-slate-700">{currentSkill.type === 'professional' ? '专业能力' : '技术能力'}</div>
+                                <div className="text-xs text-slate-500 mt-1">{currentSkill.category}</div>
+                            </div>
+                            <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
+                                <div className="text-xs text-slate-400 mb-1">核心技能</div>
+                                <div className="text-xs text-slate-600 mt-2 space-y-1">
+                                    {currentSkill.supportingSkills?.map((s, i) => (
+                                        <div key={i} className="flex items-center gap-1">
+                                            <span className="w-1 h-1 bg-slate-400 rounded-full"></span>
+                                            <span>{s}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
+                                <div className="text-xs text-slate-400 mb-1">工具生态</div>
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                    {currentSkill.tools?.map((t, i) => (
+                                        <span key={i} className="text-xs bg-white px-2 py-0.5 rounded border border-slate-200">{t}</span>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
+                                <div className="text-xs text-slate-400 mb-1">关键指标</div>
+                                <div className="text-sm font-bold text-blue-600 mt-1">{currentSkill.metrics?.primary}</div>
+                                <div className="text-xs text-slate-500 mt-1">
+                                    {currentSkill.metrics?.secondary?.join(' · ')}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

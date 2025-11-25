@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>能力刻度尺 - 个人量化系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        /* 自定义动画 */
+        .level-card { transition: all 0.3s ease; }
+        .level-card:hover { transform: translateY(-2px); }
+        .checkbox-wrapper input:checked + div {
+            background-color: #10B981;
+            border-color: #10B981;
+        }
+        .checkbox-wrapper input:checked + div svg {
+            display: block;
+        }
+        .progress-bar { transition: width 1s ease-in-out; }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // --- 数据模型 (基于之前的讨论) ---
+        const initialSkills = [
+            {
+                id: 'sales',
+                name: '销售能力 (Sales)',
+                icon: '💼',
+                description: '从不敢开口到掌控人心，结果导向的软技能量化。',
+                levels: [
+                    {
+                        lvl: 1,
+                        title: '传声筒 (The Teller)',
+                        desc: '去恐惧化与标准化执行',
+                        bossChallenge: '连续打50个陌生电话且不感到心理崩溃',
+                        criteria: [
+                            { id: 's1-1', text: '能流畅背诵标准话术，不卡顿', done: true },
+                            { id: 's1-2', text: '面对直接挂断/拒绝，心率无明显波动', done: true },
+                            { id: 's1-3', text: '熟练使用CRM系统记录每一次沟通', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 2,
+                        title: '成交手 (The Closer)',
+                        desc: '转化率与抗拒处理',
+                        bossChallenge: '向意向客户提出付款要求并敢于沉默等待',
+                        criteria: [
+                            { id: 's2-1', text: '针对“太贵了”有至少3种标准回应逻辑', done: false },
+                            { id: 's2-2', text: '连续3个月完成基础销售业绩指标', done: false },
+                            { id: 's2-3', text: '报价时敢于直视客户眼睛，不显露怯意', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 3,
+                        title: '顾问 (The Consultant)',
+                        desc: '价值重塑与信任建立',
+                        bossChallenge: '通过SPIN提问让客户自己承认痛点',
+                        criteria: [
+                            { id: 's3-1', text: '客户遇到非本产品问题也会主动咨询你', done: false },
+                            { id: 's3-2', text: '能计算并向客户展示清晰的 ROI (投资回报率)', done: false },
+                            { id: 's3-3', text: '敢于挑战客户的错误观点并获得认可', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 4,
+                        title: '操盘手 (The Strategist)',
+                        desc: '搞定复杂大单与决策链',
+                        bossChallenge: '不降价的前提下，通过置换条件完成签约',
+                        criteria: [
+                            { id: 's4-1', text: '能搞定决策链上的所有关键角色（技术/采购/老板）', done: false },
+                            { id: 's4-2', text: '精准控制长达6个月以上的销售周期', done: false }
+                        ]
+                    },
+                    {
+                        lvl: 5,
+                        title: '造雨人 (The Rainmaker)',
+                        desc: '资源整合与行业影响力',
+                        bossChallenge: '客户通过你的演讲/文章主动找上门 (Inbound)',
+                        criteria: [
+                            { id: 's5-1', text: '参与客户预算制定或行业标准制定', done: false },
+                            { id: 's5-2', text: '拥有一套可复制的个人销售方法论体系', done: false }
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'proxy',
+                name: '代理工具使用 (Proxy)',
+                icon: '🌐',
+                description: '从简单的连接到复杂的网络架构掌控。',
+                levels: [
+                    {
+                        lvl: 1,
+                        title: '使用者 (Novice)',
+                        desc: '连通性与基础配置',
+                        bossChallenge: '独立导入配置并成功打开 Google',
+                        criteria: [
+                            { id: 'p1-1', text: '能够购买节点并获取订阅链接', done: true },
+                            { id: 'p1-2', text: '客户端(Clash/V2Ray)配置正确', done: true },
+                            { id: 'p1-3', text: '浏览器能正常访问外网', done: true }
+                        ]
+                    },
+                    {
+                        lvl: 2,
+                        title: '筛选者 (Competent)',
+                        desc: '稳定性维护',
+                        bossChallenge: '手动剔除失效节点，保证24小时不断连',
+                        criteria: [
+                            { id: 'p2-1', text: '理解并能测试 Ping 值和丢包率', done: true },
+                            { id: 'p2-2', text: '熟练切换规则模式与全局模式', done: false },
+                            { id: 'p2-3', text: '能识别不同地区的节点优劣', done: false }
+                        ]
+                    },
+                    // ... 省略后续等级以节省代码长度，逻辑同上 ...
+                ]
+            }
+        ];
+
+        // --- 组件 ---
+
+        function App() {
+            const [skills, setSkills] = useState(initialSkills);
+            const [activeSkillId, setActiveSkillId] = useState('sales');
+
+            const currentSkill = skills.find(s => s.id === activeSkillId);
+
+            // 切换 Checkbox 状态
+            const toggleCriteria = (levelIndex, criteriaId) => {
+                const newSkills = [...skills];
+                const skill = newSkills.find(s => s.id === activeSkillId);
+                const level = skill.levels[levelIndex];
+                const criteria = level.criteria.find(c => c.id === criteriaId);
+                criteria.done = !criteria.done;
+                setSkills(newSkills);
+            };
+
+            // 计算当前等级 (逻辑：当前等级所有任务完成，且上一等级也完成)
+            const calculatedLevel = useMemo(() => {
+                let currentLvl = 0;
+                for (let level of currentSkill.levels) {
+                    const allDone = level.criteria.every(c => c.done);
+                    if (allDone) {
+                        currentLvl = level.lvl;
+                    } else {
+                        break; 
+                    }
+                }
+                return currentLvl;
+            }, [currentSkill]);
+
+            // 计算总进度百分比
+            const totalCriteria = currentSkill.levels.reduce((acc, lvl) => acc + lvl.criteria.length, 0);
+            const completedCriteria = currentSkill.levels.reduce((acc, lvl) => acc + lvl.criteria.filter(c => c.done).length, 0);
+            const progressPercent = Math.round((completedCriteria / totalCriteria) * 100);
+
+            return (
+                <div className="max-w-4xl mx-auto p-6">
+                    {/* 顶部导航 */}
+                    <div className="flex justify-between items-center mb-8">
+                        <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                            <span className="text-blue-600 text-3xl">📏</span> 能力刻度尺系统
+                        </h1>
+                        <div className="flex gap-2">
+                            {skills.map(skill => (
+                                <button 
+                                    key={skill.id}
+                                    onClick={() => setActiveSkillId(skill.id)}
+                                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                                        activeSkillId === skill.id 
+                                        ? 'bg-blue-600 text-white shadow-md' 
+                                        : 'bg-white text-slate-600 hover:bg-slate-200'
+                                    }`}
+                                >
+                                    {skill.icon} {skill.name}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* 仪表盘区域 */}
+                    <div className="bg-white rounded-2xl shadow-xl p-8 mb-8 border border-slate-100">
+                        <div className="flex flex-col md:flex-row gap-8 items-center">
+                            
+                            {/* 左侧：等级展示 */}
+                            <div className="text-center md:text-left flex-1">
+                                <div className="text-sm text-slate-500 uppercase tracking-wider font-semibold mb-1">Current Level</div>
+                                <div className="text-5xl font-black text-slate-800 mb-2">
+                                    Lv.{calculatedLevel} 
+                                    <span className="text-lg text-slate-400 font-normal ml-2">
+                                        / Lv.5
+                                    </span>
+                                </div>
+                                <p className="text-slate-600">{currentSkill.description}</p>
+                                
+                                {/* 进度条 */}
+                                <div className="mt-6">
+                                    <div className="flex justify-between text-xs text-slate-500 mb-1">
+                                        <span>总体掌握度</span>
+                                        <span>{progressPercent}%</span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                                        <div 
+                                            className="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full progress-bar" 
+                                            style={{width: `${progressPercent}%`}}
+                                        ></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 右侧：当前称号 */}
+                            <div className="w-full md:w-1/3 flex justify-center">
+                                <div className={`relative w-40 h-40 rounded-full flex flex-col items-center justify-center border-4 shadow-inner
+                                    ${calculatedLevel >= 5 ? 'border-yellow-400 bg-yellow-50' : 
+                                      calculatedLevel >= 3 ? 'border-blue-400 bg-blue-50' : 
+                                      'border-slate-200 bg-slate-50'
+                                    }
+                                `}>
+                                    <span className="text-4xl mb-1">
+                                        {calculatedLevel === 0 ? '🥚' : 
+                                         calculatedLevel === 1 ? '🐣' :
+                                         calculatedLevel === 2 ? '🐥' :
+                                         calculatedLevel === 3 ? '🦅' :
+                                         calculatedLevel === 4 ? '🐉' : '👑'}
+                                    </span>
+                                    <span className="font-bold text-slate-700 text-center px-2 leading-tight">
+                                        {calculatedLevel > 0 
+                                            ? currentSkill.levels[calculatedLevel - 1].title.split(' ')[0] 
+                                            : '入门者'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 核心功能：等级阶梯列表 */}
+                    <div className="space-y-6">
+                        {currentSkill.levels.map((level, index) => {
+                            const isUnlocked = index <= calculatedLevel;
+                            const isCurrentTarget = index === calculatedLevel; // 当前正在攻略的等级
+                            const isCompleted = index < calculatedLevel;
+
+                            return (
+                                <div 
+                                    key={level.lvl} 
+                                    className={`level-card relative rounded-xl border-2 p-6
+                                        ${isCompleted ? 'bg-slate-50 border-green-200 opacity-70' : 
+                                          isCurrentTarget ? 'bg-white border-blue-500 ring-4 ring-blue-100 shadow-lg scale-[1.02]' : 
+                                          'bg-white border-slate-200 opacity-50 grayscale'}
+                                    `}
+                                >
+                                    <div className="flex flex-col md:flex-row justify-between gap-6">
+                                        
+                                        {/* 等级信息 */}
+                                        <div className="md:w-1/4 border-r border-slate-100 pr-4">
+                                            <div className={`inline-block px-3 py-1 rounded-full text-xs font-bold mb-2
+                                                ${isCompleted ? 'bg-green-100 text-green-700' : 
+                                                  isCurrentTarget ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-500'}
+                                            `}>
+                                                Level {level.lvl}
+                                            </div>
+                                            <h3 className="text-xl font-bold text-slate-800">{level.title}</h3>
+                                            <p className="text-sm text-slate-500 mt-1">{level.desc}</p>
+                                        </div>
+
+                                        {/* 验收标准 Checkbox */}
+                                        <div className="md:w-2/4">
+                                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 tracking-wider">验收标准 (Checklist)</h4>
+                                            <div className="space-y-3">
+                                                {level.criteria.map(c => (
+                                                    <label key={c.id} className="checkbox-wrapper flex items-start gap-3 cursor-pointer group">
+                                                        <div className="relative">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                className="hidden" 
+                                                                checked={c.done} 
+                                                                onChange={() => toggleCriteria(index, c.id)}
+                                                                disabled={!isCurrentTarget && !isCompleted}
+                                                            />
+                                                            <div className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-colors
+                                                                ${c.done ? 'bg-green-500 border-green-500' : 'bg-white border-slate-300 group-hover:border-blue-400'}
+                                                            `}>
+                                                                <svg className="w-3 h-3 text-white hidden pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
+                                                            </div>
+                                                        </div>
+                                                        <span className={`text-sm transition-colors ${c.done ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+                                                            {c.text}
+                                                        </span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Boss 战挑战 */}
+                                        <div className="md:w-1/4 bg-slate-50 rounded-lg p-4 border border-slate-100 flex flex-col justify-center">
+                                            <div className="text-xs font-bold text-red-500 uppercase mb-1 flex items-center gap-1">
+                                                🔥 Boss Challenge
+                                            </div>
+                                            <p className="text-sm font-medium text-slate-700 leading-relaxed">
+                                                {level.bossChallenge}
+                                            </p>
+                                            {level.criteria.every(c => c.done) && !isCompleted && (
+                                                <div className="mt-3 text-xs text-center text-green-600 font-bold bg-green-50 py-1 rounded border border-green-200 animate-pulse">
+                                                    条件达成！请执行挑战！
+                                                </div>
+                                            )}
+                                        </div>
+
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="mt-12 text-center text-slate-400 text-sm">
+                        Designed with <span className="text-red-400">♥</span> for Personal Growth
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

@@ -56,8 +56,126 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
+        // --- API 配置 ---
+        const API_BASE_URL = 'http://localhost:3000/api';
+        
+        // --- Token 管理 ---
+        const tokenManager = {
+            getToken: () => localStorage.getItem('authToken'),
+            setToken: (token) => localStorage.setItem('authToken', token),
+            clearToken: () => {
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('currentUser');
+            },
+            getUser: () => {
+                const user = localStorage.getItem('currentUser');
+                return user ? JSON.parse(user) : null;
+            },
+            setUser: (user) => localStorage.setItem('currentUser', JSON.stringify(user))
+        };
+
+        // --- API 客户端 ---
+        const apiClient = {
+            async request(url, options = {}) {
+                const token = tokenManager.getToken();
+                const headers = {
+                    'Content-Type': 'application/json',
+                    ...(token && { Authorization: `Bearer ${token}` }),
+                    ...options.headers
+                };
+                
+                try {
+                    const response = await fetch(`${API_BASE_URL}${url}`, {
+                        ...options,
+                        headers
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.status === 401) {
+                        // Token 过期，抛出错误让上层处理
+                        throw new Error('Token 过期，请重新登录');
+                    }
+                    
+                    if (!data.success) {
+                        throw new Error(data.message || '请求失败');
+                    }
+                    
+                    return data;
+                } catch (err) {
+                    // 网络错误或 JSON 解析错误
+                    if (err.name === 'TypeError' && err.message.includes('fetch')) {
+                        throw new Error('无法连接到服务器，请检查后端是否启动');
+                    }
+                    throw err;
+                }
+            },
+            
+            // 认证 API
+            auth: {
+                async register(username, email, password) {
+                    return await apiClient.request('/auth/register', {
+                        method: 'POST',
+                        body: JSON.stringify({ username, email, password })
+                    });
+                },
+                async login(username, password) {
+                    return await apiClient.request('/auth/login', {
+                        method: 'POST',
+                        body: JSON.stringify({ username, password })
+                    });
+                },
+                async verify() {
+                    return await apiClient.request('/auth/verify');
+                }
+            },
+            
+            // 技能数据 API
+            skills: {
+                async get() {
+                    return await apiClient.request('/skills');
+                },
+                async save(skills, version) {
+                    return await apiClient.request('/skills', {
+                        method: 'PUT',
+                        body: JSON.stringify({ skills, version })
+                    });
+                },
+                async sync(localData, localVersion) {
+                    return await apiClient.request('/skills/sync', {
+                        method: 'POST',
+                        body: JSON.stringify({ localData, localVersion })
+                    });
+                }
+            },
+            
+            // 活动日志 API
+            activity: {
+                async log(activityType, skillId, details) {
+                    return await apiClient.request('/activity/log', {
+                        method: 'POST',
+                        body: JSON.stringify({ activityType, skillId, details })
+                    });
+                },
+                async getStats() {
+                    return await apiClient.request('/activity/stats');
+                },
+                async getHeatmap(year) {
+                    return await apiClient.request(`/activity/heatmap?year=${year}`);
+                }
+            }
+        };
+
         // --- 1. 职业角色与能力映射 ---
         const careerRoles = [
+            {
+                id: 'dashboard',
+                name: '首页',
+                icon: '📊',
+                color: 'purple',
+                description: '能力仪表盘',
+                skillIds: [] // 首页没有技能，显示仪表盘
+            },
             {
                 id: 'ai-pm',
                 name: 'AI产品经理',
@@ -366,13 +484,306 @@
             }
         ];
 
-        // --- 2. 子组件：详情页 (DetailView) ---
+        // --- 2. 子组件：首页仪表盘 (Dashboard) ---
+        
+        function DashboardHome({ onNavigate }) {
+            const [heatmapData, setHeatmapData] = useState([]);
+            const [stats, setStats] = useState(null);
+            const [loading, setLoading] = useState(true);
+            
+            useEffect(() => {
+                const loadData = async () => {
+                    try {
+                        const [heatmapRes, statsRes] = await Promise.all([
+                            apiClient.activity.getHeatmap(new Date().getFullYear()),
+                            apiClient.activity.getStats()
+                        ]);
+                        setHeatmapData(heatmapRes.data?.heatmap || []);
+                        setStats(statsRes.data || {});
+                        console.log('✅ 仪表盘数据加载成功', { heatmap: heatmapRes.data?.heatmap?.length, stats: statsRes.data });
+                    } catch (err) {
+                        console.error('❌ 加载仪表盘数据失败:', err);
+                        // 即使加载失败也设置默认值
+                        setHeatmapData([]);
+                        setStats({});
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+                loadData();
+            }, []);
+            
+            // 热力图颜色映射
+            const getLevelColor = (level) => {
+                const colors = [
+                    'bg-slate-100',      // 0: 无活动
+                    'bg-emerald-200',    // 1: 1-2次
+                    'bg-emerald-400',    // 2: 3-5次
+                    'bg-emerald-600',    // 3: 6-10次
+                    'bg-emerald-800'     // 4: >10次
+                ];
+                return colors[level] || colors[0];
+            };
+            
+            // 按周分组热力图数据（365天 → 52周）
+            const weeklyData = useMemo(() => {
+                if (!heatmapData.length) return [];
+                const weeks = [];
+                for (let i = 0; i < heatmapData.length; i += 7) {
+                    weeks.push(heatmapData.slice(i, i + 7));
+                }
+                return weeks;
+            }, [heatmapData]);
+            
+            if (loading) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+                        <div className="text-center">
+                            <div className="text-6xl mb-4 animate-pulse">📊</div>
+                            <p className="text-slate-500">加载数据中...</p>
+                        </div>
+                    </div>
+                );
+            }
+            
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-slate-50 p-6">
+                    <div className="max-w-7xl mx-auto">
+                        {/* 头部 */}
+                        <div className="mb-8 flex items-center justify-between">
+                            <div>
+                                <h1 className="text-4xl font-black text-slate-800 mb-2">📊 能力仪表盘</h1>
+                                <p className="text-slate-500">追踪你的成长轨迹</p>
+                            </div>
+                            <button
+                                onClick={() => onNavigate('dashboard')}
+                                className="px-6 py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition shadow-lg"
+                            >
+                                进入技能详情 →
+                            </button>
+                        </div>
+                        
+                        {/* 统计卡片 */}
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                            <div className="bg-white rounded-2xl shadow-lg p-6 border-2 border-emerald-100">
+                                <div className="text-emerald-600 text-sm font-bold mb-2">📅 总活跃天数</div>
+                                <div className="text-4xl font-black text-slate-800">{stats?.totalDays || 0}</div>
+                                <div className="text-xs text-slate-400 mt-1">累计练习天数</div>
+                            </div>
+                            
+                            <div className="bg-white rounded-2xl shadow-lg p-6 border-2 border-blue-100">
+                                <div className="text-blue-600 text-sm font-bold mb-2">🔥 当前连续</div>
+                                <div className="text-4xl font-black text-slate-800">{stats?.currentStreak || 0}</div>
+                                <div className="text-xs text-slate-400 mt-1">天持续打卡</div>
+                            </div>
+                            
+                            <div className="bg-white rounded-2xl shadow-lg p-6 border-2 border-orange-100">
+                                <div className="text-orange-600 text-sm font-bold mb-2">🏆 最长连续</div>
+                                <div className="text-4xl font-black text-slate-800">{stats?.longestStreak || 0}</div>
+                                <div className="text-xs text-slate-400 mt-1">天最佳记录</div>
+                            </div>
+                            
+                            <div className="bg-white rounded-2xl shadow-lg p-6 border-2 border-purple-100">
+                                <div className="text-purple-600 text-sm font-bold mb-2">💪 总练习次数</div>
+                                <div className="text-4xl font-black text-slate-800">{stats?.totalActivities || 0}</div>
+                                <div className="text-xs text-slate-400 mt-1">累计活动记录</div>
+                            </div>
+                        </div>
+                        
+                        {/* 热力图 */}
+                        <div className="bg-white rounded-2xl shadow-lg p-8 border border-slate-100">
+                            <div className="mb-6">
+                                <h2 className="text-2xl font-bold text-slate-800 mb-2">🔥 年度活动热力图</h2>
+                                <p className="text-sm text-slate-500">过去 365 天的练习记录</p>
+                            </div>
+                            
+                            {/* 月份标签 */}
+                            <div className="mb-2 flex gap-[2px]">
+                                {['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'].map((month, idx) => (
+                                    <div key={idx} className="text-xs text-slate-400" style={{width: 'calc((100% - 22px) / 12)'}}>
+                                        {month}
+                                    </div>
+                                ))}
+                            </div>
+                            
+                            {/* 热力图格子 */}
+                            <div className="flex gap-[2px] overflow-x-auto custom-scrollbar pb-4">
+                                {weeklyData.length > 0 ? weeklyData.map((week, weekIdx) => (
+                                    <div key={weekIdx} className="flex flex-col gap-[2px]">
+                                        {week.map((day, dayIdx) => (
+                                            <div
+                                                key={dayIdx}
+                                                className={`w-3 h-3 rounded-sm ${getLevelColor(day.level)} transition-all hover:scale-150 hover:shadow-lg cursor-pointer`}
+                                                title={`${day.date}: ${day.count} 次活动`}
+                                            ></div>
+                                        ))}
+                                    </div>
+                                )) : (
+                                    <div className="w-full text-center py-12 text-slate-400">
+                                        <div className="text-5xl mb-3">📊</div>
+                                        <p>还没有活动记录，开始你的第一次练习吧！</p>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* 图例 */}
+                            <div className="mt-6 flex items-center justify-end gap-2 text-xs">
+                                <span className="text-slate-500">少</span>
+                                <div className="w-3 h-3 bg-slate-100 rounded-sm"></div>
+                                <div className="w-3 h-3 bg-emerald-200 rounded-sm"></div>
+                                <div className="w-3 h-3 bg-emerald-400 rounded-sm"></div>
+                                <div className="w-3 h-3 bg-emerald-600 rounded-sm"></div>
+                                <div className="w-3 h-3 bg-emerald-800 rounded-sm"></div>
+                                <span className="text-slate-500">多</span>
+                            </div>
+                        </div>
+                        
+                        {/* 本周/本月活动 */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+                            <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-100">
+                                <h3 className="text-lg font-bold text-slate-800 mb-4">📊 本周活动</h3>
+                                <div className="text-5xl font-black text-purple-600">{stats?.thisWeek || 0}</div>
+                                <div className="text-sm text-slate-500 mt-2">次练习记录</div>
+                            </div>
+                            
+                            <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-100">
+                                <h3 className="text-lg font-bold text-slate-800 mb-4">📈 本月活动</h3>
+                                <div className="text-5xl font-black text-blue-600">{stats?.thisMonth || 0}</div>
+                                <div className="text-sm text-slate-500 mt-2">次练习记录</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- 3. 子组件：登录/注册页 (LoginPage) ---
+        
+        function LoginPage({ onLoginSuccess }) {
+            const [isLogin, setIsLogin] = useState(true);
+            const [username, setUsername] = useState('');
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(false);
+            
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+                
+                try {
+                    if (isLogin) {
+                        // 登录
+                        const response = await apiClient.auth.login(username, password);
+                        tokenManager.setToken(response.data.token);
+                        tokenManager.setUser(response.data.user);
+                        console.log('✅ 登录成功');
+                        onLoginSuccess();
+                    } else {
+                        // 注册
+                        const response = await apiClient.auth.register(username, email, password);
+                        tokenManager.setToken(response.data.token);
+                        tokenManager.setUser(response.data.user);
+                        console.log('✅ 注册成功');
+                        onLoginSuccess();
+                    }
+                } catch (err) {
+                    setError(err.message || (isLogin ? '登录失败' : '注册失败'));
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-blue-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md fade-in">
+                        <div className="text-center mb-8">
+                            <div className="text-5xl mb-4">📏</div>
+                            <h1 className="text-3xl font-bold text-slate-800">能力刻度尺</h1>
+                            <p className="text-slate-500 mt-2">{isLogin ? '欢迎回来' : '创建账户'}</p>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">用户名</label>
+                                <input
+                                    type="text"
+                                    value={username}
+                                    onChange={(e) => setUsername(e.target.value)}
+                                    className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition"
+                                    placeholder="请输入用户名"
+                                    required
+                                />
+                            </div>
+                            
+                            {!isLogin && (
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">邮箱</label>
+                                    <input
+                                        type="email"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition"
+                                        placeholder="请输入邮箱"
+                                        required
+                                    />
+                                </div>
+                            )}
+                            
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">密码</label>
+                                <input
+                                    type="password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition"
+                                    placeholder={isLogin ? '请输入密码' : '至少8位，包含大小写字母和数字'}
+                                    required
+                                />
+                                {!isLogin && (
+                                    <p className="text-xs text-slate-500 mt-1">密码至少8位，必须包含大小写字母和数字</p>
+                                )}
+                            </div>
+                            
+                            {error && (
+                                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                                    {error}
+                                </div>
+                            )}
+                            
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {loading ? '处理中...' : (isLogin ? '登录' : '注册')}
+                            </button>
+                        </form>
+                        
+                        <div className="mt-6 text-center">
+                            <button
+                                onClick={() => {
+                                    setIsLogin(!isLogin);
+                                    setError('');
+                                }}
+                                className="text-purple-600 hover:text-purple-700 font-medium text-sm"
+                            >
+                                {isLogin ? '没有账户？立即注册' : '已有账户？立即登录'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- 3. 子组件：详情页 (DetailView) ---
         
         function DetailView({ skill, levelIndex, onBack, onUpdateSkill }) {
             const level = skill.levels[levelIndex];
             const [logInput, setLogInput] = useState('');
 
-            const handleAddLog = () => {
+            const handleAddLog = async () => {
                 if (!logInput.trim()) return;
                 
                 const newLog = {
@@ -385,6 +796,19 @@
                 const updatedSkill = { ...skill };
                 updatedSkill.levels[levelIndex].logs.unshift(newLog);
                 onUpdateSkill(updatedSkill);
+                
+                // 记录活动到云端
+                try {
+                    await apiClient.activity.log('practice_log', skill.id, {
+                        skillName: skill.name,
+                        level: level.lvl,
+                        levelTitle: level.title,
+                        logContent: logInput.substring(0, 100) // 只保存前100字符
+                    });
+                    console.log('✅ 活动已记录');
+                } catch (err) {
+                    console.error('❌ 活动记录失败:', err);
+                }
                 
                 setLogInput('');
             };
@@ -533,15 +957,114 @@
         }
 
 
-        // --- 3. 主程序组件 (App) ---
+        // --- 4. 主程序组件 (App) ---
 
         function App() {
-            const [skills, setSkills] = useState(initialSkills);
+            // 认证状态
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [isLoading, setIsLoading] = useState(true);
+            const [currentUser, setCurrentUser] = useState(null);
+            
+            // 检查登录状态
+            useEffect(() => {
+                const checkAuth = async () => {
+                    const token = tokenManager.getToken();
+                    if (token) {
+                        try {
+                            const response = await apiClient.auth.verify();
+                            const user = tokenManager.getUser();
+                            setCurrentUser(user);
+                            setIsAuthenticated(true);
+                            console.log('✅ 用户已登录:', user?.username);
+                        } catch (err) {
+                            console.log('⚠️ Token 验证失败，清除登录状态:', err.message);
+                            tokenManager.clearToken();
+                            setIsAuthenticated(false);
+                        }
+                    }
+                    setIsLoading(false);
+                };
+                checkAuth();
+            }, []);
+            
+            // 从 localStorage 或云端恢复数据
+            const [skills, setSkills] = useState(() => {
+                try {
+                    const savedData = localStorage.getItem('skillTrackerData');
+                    if (savedData) {
+                        const parsed = JSON.parse(savedData);
+                        console.log('✅ 数据已从 localStorage 恢复');
+                        return parsed;
+                    }
+                } catch (error) {
+                    console.error('❌ localStorage 数据恢复失败:', error);
+                }
+                return initialSkills;
+            });
             const [activeRoleId, setActiveRoleId] = useState(careerRoles[0].id);
             const [activeSkillId, setActiveSkillId] = useState(initialSkills[0].id);
             
+            // 登录成功后的处理
+            const handleLoginSuccess = async () => {
+                const user = tokenManager.getUser();
+                setCurrentUser(user);
+                setIsAuthenticated(true);
+                setIsLoading(false);  // 结束加载状态
+                
+                // 从云端同步数据
+                try {
+                    const response = await apiClient.skills.get();
+                    if (response.data && response.data.skills && response.data.skills.length > 0) {
+                        setSkills(response.data.skills);
+                        localStorage.setItem('skillTrackerData', JSON.stringify(response.data.skills));
+                        console.log('✅ 已从云端同步数据');
+                    } else {
+                        console.log('⚠️ 云端暂无数据，使用本地初始数据');
+                    }
+                } catch (err) {
+                    console.log('⚠️ 云端数据同步失败，使用本地数据:', err.message);
+                }
+            };
+            
+            // 退出登录
+            const handleLogout = () => {
+                tokenManager.clearToken();
+                setIsAuthenticated(false);
+                setCurrentUser(null);
+                localStorage.removeItem('skillTrackerData');
+                window.location.reload();
+            };
+            
+            // 监听 skills 变化，自动保存到 localStorage 和云端
+            useEffect(() => {
+                if (!isAuthenticated) return;
+                
+                // 保存到 localStorage
+                try {
+                    localStorage.setItem('skillTrackerData', JSON.stringify(skills));
+                    console.log('💾 数据已自动保存到 localStorage');
+                } catch (error) {
+                    console.error('❌ localStorage 保存失败:', error);
+                    if (error.name === 'QuotaExceededError') {
+                        alert('存储空间不足！请导出数据或清理旧日志。');
+                    }
+                }
+                
+                // 异步同步到云端（防抖）
+                const syncTimeout = setTimeout(async () => {
+                    try {
+                        await apiClient.skills.save(skills, 1);
+                        console.log('☁️ 数据已同步到云端');
+                    } catch (err) {
+                        console.error('❌ 云端同步失败:', err);
+                    }
+                }, 2000);
+                
+                return () => clearTimeout(syncTimeout);
+            }, [skills, isAuthenticated]);
+            
             // 视图状态: 'dashboard' 或 'detail'
-            const [viewMode, setViewMode] = useState('dashboard'); 
+            const [viewMode, setViewMode] = useState('dashboard');
             const [selectedLevelIndex, setSelectedLevelIndex] = useState(0);
 
             // 拖拽相关的 Refs
@@ -570,8 +1093,13 @@
                 setSkills(copyListItems);
             };
 
-            // 功能：切换 Checkbox (保持不变)
-            const toggleCriteria = (levelIndex, criteriaId) => {
+            // 功能：切换 Checkbox ，同时记录活动
+            const toggleCriteria = async (levelIndex, criteriaId) => {
+                const skill = skills.find(s => s.id === activeSkillId);
+                const level = skill.levels[levelIndex];
+                const criteria = level.criteria.find(c => c.id === criteriaId);
+                const willBeChecked = !criteria.done;
+                
                 const newSkills = skills.map(skill => {
                     if (skill.id === activeSkillId) {
                         const newLevels = [...skill.levels];
@@ -585,6 +1113,21 @@
                     return skill;
                 });
                 setSkills(newSkills);
+                
+                // 如果是勾选，记录活动
+                if (willBeChecked) {
+                    try {
+                        await apiClient.activity.log('criteria_complete', skill.id, {
+                            skillName: skill.name,
+                            level: level.lvl,
+                            levelTitle: level.title,
+                            criteriaText: criteria.text
+                        });
+                        console.log('✅ 验收标准完成活动已记录');
+                    } catch (err) {
+                        console.error('❌ 活动记录失败:', err);
+                    }
+                }
             };
 
             // 功能：更新单个技能的全量数据 (用于子组件回调)
@@ -619,6 +1162,23 @@
             };
 
             // --- 渲染部分 ---
+            
+            // 加载中
+            if (isLoading) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+                        <div className="text-center">
+                            <div className="text-6xl mb-4 animate-bounce">📏</div>
+                            <p className="text-slate-500">加载中...</p>
+                        </div>
+                    </div>
+                );
+            }
+            
+            // 未登录，显示登录页
+            if (!isAuthenticated) {
+                return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+            }
 
             // 如果是详情模式，渲染详情页
             if (viewMode === 'detail') {
@@ -639,26 +1199,30 @@
                     <div className="w-80 bg-white border-r border-slate-200 flex flex-col">
                         {/* Logo区 */}
                         <div className="p-6 border-b border-slate-100">
-                            <h1 className="text-2xl font-extrabold text-slate-800 flex items-center gap-2">
+                            <div className="flex items-center gap-2">
                                 <span className="bg-slate-800 text-white w-8 h-8 flex items-center justify-center rounded-lg text-lg">📏</span>
-                                <span>能力刻度尺</span>
-                            </h1>
-                            <p className="text-xs text-slate-400 mt-1 ml-10">v4.0 · INTJ能力树</p>
+                                <div>
+                                    <h1 className="text-xl font-extrabold text-slate-800">能力刻度尺</h1>
+                                    <p className="text-xs text-slate-400">v4.0 · INTJ能力树</p>
+                                </div>
+                            </div>
                         </div>
 
                         {/* 职业角色列表 */}
                         <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
-                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-2">职业角色</div>
+                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-2">页面导航</div>
                             {careerRoles.map(role => {
                                 const isActive = activeRoleId === role.id;
                                 const roleSkillsData = skills.filter(s => role.skillIds.includes(s.id));
-                                const totalCriteria = roleSkillsData.reduce((acc, skill) => 
+                                
+                                // 如果是仪表盘，不计算进度
+                                const totalCriteria = role.id === 'dashboard' ? 0 : roleSkillsData.reduce((acc, skill) => 
                                     acc + skill.levels.reduce((sum, lvl) => sum + lvl.criteria.length, 0), 0
                                 );
-                                const completedCriteria = roleSkillsData.reduce((acc, skill) => 
+                                const completedCriteria = role.id === 'dashboard' ? 0 : roleSkillsData.reduce((acc, skill) => 
                                     acc + skill.levels.reduce((sum, lvl) => sum + lvl.criteria.filter(c => c.done).length, 0), 0
                                 );
-                                const progress = Math.round((completedCriteria / totalCriteria) * 100);
+                                const progress = totalCriteria > 0 ? Math.round((completedCriteria / totalCriteria) * 100) : 0;
 
                                 return (
                                     <div key={role.id} className="mb-3">
@@ -681,20 +1245,24 @@
                                                     </div>
                                                     <div className="text-xs text-slate-500 mb-2">{role.description}</div>
                                                     
-                                                    {/* 进度条 */}
-                                                    <div className="w-full bg-slate-200 rounded-full h-1.5 mb-1">
-                                                        <div 
-                                                            className={`h-full rounded-full bg-gradient-to-r from-${role.color}-400 to-${role.color}-600 transition-all duration-500`}
-                                                            style={{width: `${progress}%`}}
-                                                        ></div>
-                                                    </div>
-                                                    <div className="text-xs text-slate-400">{progress}% 完成</div>
+                                                    {/* 进度条 - 仅非仪表盘显示 */}
+                                                    {role.id !== 'dashboard' && (
+                                                        <>
+                                                            <div className="w-full bg-slate-200 rounded-full h-1.5 mb-1">
+                                                                <div 
+                                                                    className={`h-full rounded-full bg-gradient-to-r from-${role.color}-400 to-${role.color}-600 transition-all duration-500`}
+                                                                    style={{width: `${progress}%`}}
+                                                                ></div>
+                                                            </div>
+                                                            <div className="text-xs text-slate-400">{progress}% 完成</div>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         </button>
 
-                                        {/* 该角色下的能力列表 */}
-                                        {isActive && (
+                                        {/* 该角色下的能力列表 - 仅非仪表盘且激活时显示 */}
+                                        {isActive && role.id !== 'dashboard' && (
                                             <div className="mt-2 ml-2 space-y-1">
                                                 {roleSkillsData.map(skill => {
                                                     const isActiveSkill = activeSkillId === skill.id;
@@ -716,18 +1284,33 @@
                                             </div>
                                         )}
                                     </div>
-                                );
+                                );  
                             })}
                         </div>
 
                         {/* 底部信息 */}
-                        <div className="p-4 border-t border-slate-100 text-center">
-                            <p className="text-xs text-slate-400">INTJ Capability Framework</p>
+                        <div className="p-4 border-t border-slate-100">
+                            <div className="text-center mb-3">
+                                <p className="text-xs text-slate-600 mb-1">👤 {currentUser?.username}</p>
+                                <p className="text-xs text-slate-400">INTJ Capability Framework</p>
+                            </div>
+                            <button
+                                onClick={handleLogout}
+                                className="w-full text-xs text-red-600 hover:text-red-700 hover:bg-red-50 py-2 rounded-lg transition font-medium"
+                            >
+                                🚪 退出登录
+                            </button>
                         </div>
                     </div>
 
                     {/* 右侧内容区 */}
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8">
+                        {activeRoleId === 'dashboard' ? (
+                            /* 仪表盘视图 */
+                            <DashboardHome onNavigate={() => {}} />
+                        ) : (
+                            /* 技能视图 */
+                            <>
                     {/* 当前角色面包屑 */}
                     <div className="mb-6 flex items-center gap-2 text-sm">
                         <span className="text-slate-400">当前角色:</span>
@@ -923,7 +1506,8 @@
                             </div>
                         </div>
                     </div>
-
+                    </>
+                        )}
                     </div>
                 </div>
             );

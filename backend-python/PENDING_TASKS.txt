@@ -1,0 +1,146 @@
+未完成事项清单（按阶段分组）
+
+说明：本文件记录所有开发任务的状态。每一项都列出目标、接口/文件、验收标准。
+
+【项目进度】
+✅ Phase 1-8 已完成 (73%)
+⏸️ Phase 9-11 待开发
+
+最后更新：2025-11-27 17:33
+
+========================================
+已完成阶段（Phase 1-8）
+========================================
+
+✅ Phase 1: 环境准备与项目初始化
+- 创建 backend-python 目录结构
+- 配置 pyproject.toml 和 requirements.txt
+- 安装所有依赖（FastAPI、SQLAlchemy、bcrypt等）
+- 创建 .env 配置文件
+- 验证：服务器成功启动，健康检查端点工作
+
+✅ Phase 2: 数据库层实现
+- 创建 SQLAlchemy 异步引擎和连接池
+- 实现三个数据库模型：User、UserSkillData、ActivityLog
+- 配置 JSON 字段支持
+- 验证：成功连接 MySQL，模型正常工作
+
+✅ Phase 3: 安全模块实现
+- 实现 bcrypt 密码加密（salt rounds=12）
+- 实现 JWT token 创建、解码、验证
+- 创建认证依赖注入（get_current_user）
+- 创建 XSS 过滤工具和统一响应格式
+- 验证：Python 成功验证 Node.js 生成的密码哈希
+
+✅ Phase 4: Pydantic Schemas 定义
+- 用户相关：UserRegister、UserLogin、UserOut、TokenResponse
+- 技能相关：SkillDataOut、SkillDataUpdate、SkillDataResponse
+- 活动相关：ActivityCreate、ActivityOut、HeatmapData、HeatmapResponse、ActivitySummary
+- 通用响应：ErrorResponse、SuccessResponse
+- 验证：所有 Schema 验证测试通过
+
+✅ Phase 5: 认证 API 实现
+- POST /api/auth/register - 用户注册
+- POST /api/auth/login - 用户登录
+- GET /api/auth/me - 获取当前用户信息
+- GET /api/auth/verify - 验证 Token（兼容接口）
+- 服务层：auth_service.py（注册、登录、用户查询）
+- 验证：所有认证 API 测试通过，响应字段使用驼峰格式
+
+✅ Phase 6: 技能管理 API 实现
+- GET /api/skills - 获取技能数据
+- PUT /api/skills - 更新技能数据（含版本冲突检测）
+- 服务层：skill_service.py（乐观锁版本控制）
+- 验证：正常更新和版本冲突测试通过
+
+✅ Phase 7: 活动日志 API 实现
+- POST /api/activity - 记录活动
+- GET /api/activity/heatmap?days=180 - 热力图数据
+- GET /api/activity/summary - 活动统计摘要
+- 服务层：activity_service.py（热度计算、连续天数统计）
+- 验证：热力图数据正确，连续天数计算准确
+
+✅ Phase 8: 中间件与错误处理
+- CORS 中间件：支持跨域请求
+- 请求日志中间件：记录请求 ID、处理时间
+- 全局异常处理：ValidationError、HTTPException、DatabaseError、通用异常
+- 验证：所有中间件功能测试通过
+
+========================================
+待开发阶段（Phase 9-11）
+========================================
+
+—
+Phase 9 LLM/RAG 架构预留（待开发）⚠️ 仅预留架构，不涉及具体模型集成
+目标：抽象接口，以便后续集成不同模型与向量库（仅架构预留，不实现具体模型）。
+内容：
+- app/services/llm/base.py：LLMClient 接口（chat, embeddings 等方法定义）
+- app/services/rag/base.py：RAGPipeline 接口（index, retrieve, answer 等方法定义）
+- 占位实现与配置约定，不接具体模型
+说明：
+  ✓ 只创建抽象类和接口定义
+  ✓ 预留配置项（.env 中添加 LLM_PROVIDER 等）
+  ✗ 不集成 OpenAI/Claude 等具体模型
+  ✗ 不实现向量数据库连接
+  ✗ 等后续明确需求后再实现具体集成
+验收标准：
+- 代码可引用接口但不报错
+- 留出配置项（.env/Settings）但默认关闭
+
+—
+Phase 10 测试与验证（待开发）
+目标：API兼容性测试、集成测试与基本性能验证。
+内容：
+- scripts/test_skill_api.py：技能API测试（含版本冲突用例）
+- scripts/test_activity_api.py：活动API测试（含热力图/摘要）
+- 认证与权限边界用例（无Token/错误Token）
+- 简单并发测试（10-20并发下的行为）
+验收标准：
+- 与 Node.js 响应结构一致性通过
+- 所有已实现API均有测试覆盖
+
+—
+Phase 11 Docker 与部署（待开发）
+目标：完成可运行的容器及编排。
+内容：
+- backend-python/Dockerfile：FastAPI 镜像（多阶段构建可选）
+- docker-compose.yml：FastAPI + MySQL；环境变量映射；卷与网络
+- 启动与健康检查：/health 端点返回成功
+- 部署文档：运行步骤与环境变量说明
+验收标准：
+- docker-compose up 可正常启动并访问 API
+- 停机/重启后数据与服务正常
+
+—
+可选改进（建议但非必需）
+- Swagger 文档示例与字段别名一致性检查（驼峰/下划线）
+- Alembic 迁移脚本（为未来模型变更准备）
+- 安全增强：登录失败次数限制、账户锁定、审计日志扩展
+
+========================================
+当前开发状态总结
+========================================
+
+🎉 已完成功能：
+- ✅ 完整的用户认证系统（注册、登录、JWT）
+- ✅ 技能数据管理（CRUD + 版本控制）
+- ✅ 活动日志系统（热力图 + 统计）
+- ✅ 完善的中间件（CORS、日志、异常处理）
+- ✅ 统一的错误处理和响应格式
+
+📊 代码质量：
+- 分层清晰：models/schemas/services/api 分离
+- 异步支持：全异步数据库操作
+- 安全性：bcrypt + JWT + XSS过滤
+- 测试覆盖：每个阶段均有测试脚本
+
+🔧 待开发功能：
+- ⏸️ Phase 9: LLM/RAG架构预留（可选，仅接口）
+- ⏸️ Phase 10: 测试与验证（推荐）
+- ⏸️ Phase 11: Docker化与部署（推荐）
+
+💡 建议：
+当前后端Python版本已具备全部核心功能，可以：
+1. 直接进入Phase 11，完成Docker化后正式替换Node.js版本
+2. 等明确LLM需求后，再回头实现Phase 9的具体集成
+3. 先进行Phase 10的全面测试，确保系统稳定性
